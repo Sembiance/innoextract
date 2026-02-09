@@ -27,18 +27,28 @@
 namespace util {
 
 void binary_string::load(std::istream & is, std::string & target) {
-	
+
 	boost::uint32_t length = util::load<boost::uint32_t>(is);
 	if(is.fail()) {
 		return;
 	}
-	
+
+	// Sanity check: reject unreasonably large string lengths
+	// Individual strings in Inno Setup headers should not exceed a few MB
+	if(length > 64 * 1024 * 1024) {
+		is.setstate(std::ios_base::failbit);
+		return;
+	}
+
 	target.clear();
-	
+
 	while(length) {
 		char buffer[10 * 1024];
 		boost::uint32_t buf_size = std::min(length, boost::uint32_t(sizeof(buffer)));
 		is.read(buffer, std::streamsize(buf_size));
+		if(is.fail()) {
+			return;
+		}
 		target.append(buffer, buf_size);
 		length -= buf_size;
 	}

@@ -125,9 +125,11 @@ struct offsets {
 private:
 	
 	bool load_from_exe_file(std::istream & is);
-	
+
 	bool load_from_exe_resource(std::istream & is);
-	
+
+	bool load_from_exe_scan(std::istream & is);
+
 	bool load_offsets_at(std::istream & is, boost::uint32_t pos);
 	
 };

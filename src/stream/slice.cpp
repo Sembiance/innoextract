@@ -195,11 +195,32 @@ void slice_reader::open(size_t slice) {
 	if(open_file_case_insensitive(dir, slice_file)) {
 		return;
 	}
-	
+
 	if(!base_file2.empty() && slice_file2 != slice_file && open_file_case_insensitive(dir, slice_file2)) {
 		return;
 	}
-	
+
+	// Try legacy ".N" filename format (e.g. SETUP.1 instead of SETUP-1.bin)
+	{
+		std::ostringstream legacy_oss;
+		legacy_oss << base_file << '.' << (slice + 1);
+		path_type legacy_file = legacy_oss.str();
+		if(open_file(dir / legacy_file)) {
+			return;
+		}
+		if(!base_file2.empty()) {
+			std::ostringstream legacy_oss2;
+			legacy_oss2 << base_file2 << '.' << (slice + 1);
+			path_type legacy_file2 = legacy_oss2.str();
+			if(legacy_file2 != legacy_file && open_file(dir / legacy_file2)) {
+				return;
+			}
+		}
+		if(open_file_case_insensitive(dir, legacy_file)) {
+			return;
+		}
+	}
+
 	std::ostringstream oss;
 	oss << "could not open slice " << slice << ": " << slice_file;
 	if(!base_file2.empty() && slice_file2 != slice_file) {
@@ -209,19 +230,27 @@ void slice_reader::open(size_t slice) {
 }
 
 bool slice_reader::seek(size_t slice, boost::uint32_t offset) {
-	
+
 	seek(slice);
-	
+
 	offset += data_offset;
-	
+
+	// Handle overflow to subsequent slices for external disk files
+	while(offset > slice_size && data_offset == 0) {
+		boost::uint32_t overflow = offset - slice_size;
+		slice++;
+		seek(slice);
+		offset = boost::uint32_t(is->tellg()) + overflow;
+	}
+
 	if(offset > slice_size) {
 		return false;
 	}
-	
+
 	if(is->seekg(offset).fail()) {
 		return false;
 	}
-	
+
 	return true;
 }
 

@@ -30,7 +30,7 @@
 namespace setup {
 
 void task_entry::load(std::istream & is, const info & i) {
-	
+
 	is >> util::encoded_string(name, i.codepage);
 	is >> util::encoded_string(description, i.codepage);
 	is >> util::encoded_string(group_description, i.codepage);
@@ -55,11 +55,11 @@ void task_entry::load(std::istream & is, const info & i) {
 	} else {
 		used = true;
 	}
-	
+
 	winver.load(is, i.version);
-	
+
 	stored_flag_reader<flags> flagreader(is);
-	
+
 	flagreader.add(Exclusive);
 	flagreader.add(Unchecked);
 	if(i.version >= INNO_VERSION(2, 0, 5)) {
@@ -71,7 +71,7 @@ void task_entry::load(std::istream & is, const info & i) {
 	if(i.version >= INNO_VERSION(4, 2, 3)) {
 		flagreader.add(DontInheritCheck);
 	}
-	
+
 	options = flagreader.finalize();
 }
 

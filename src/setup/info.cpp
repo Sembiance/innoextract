@@ -21,6 +21,7 @@
 #include "setup/info.hpp"
 
 #include <cassert>
+#include <cstring>
 #include <istream>
 #include <sstream>
 
@@ -57,7 +58,7 @@ namespace setup {
 template <class Entry>
 void info::load_entries(std::istream & is, entry_types entries, size_t count,
                         std::vector<Entry> & result, entry_types::enum_type entry_type) {
-	
+
 	result.clear();
 	if(entries & entry_type) {
 		result.resize(count);
@@ -145,6 +146,178 @@ void check_is_end(stream::block_reader::pointer & is, const char * what) {
 
 } // anonymous namespace
 
+void info::load_v109(std::istream & is, entry_types entries) {
+
+	debug("loading setup headers for version " << version << " (pre-1.2.10 path)");
+
+	codepage = util::cp_windows1252;
+
+	// In 1.0.9, each block has: checksum1(4) + compressed_size(4) + uncompressed_size(4) + checksum2(4) + data
+	// We need to track stream positions manually because boost::iostreams chains
+	// don't reliably leave the base stream at the right position after destruction.
+
+	std::streampos block_start = is.tellg();
+
+	// Helper: read block header and return compressed_size, advancing block_start past the block
+	// We need to seek to block_start before calling block_reader::get()
+
+	// Block 0: Header
+	{
+		is.seekg(block_start);
+		// Read the block header to get compressed_size for position tracking
+		boost::uint32_t b_csum1 = util::load<boost::uint32_t>(is);
+		boost::uint32_t b_comp = util::load<boost::uint32_t>(is);
+		boost::uint32_t b_uncomp = util::load<boost::uint32_t>(is);
+		boost::uint32_t b_csum2 = util::load<boost::uint32_t>(is);
+		(void)b_csum1; (void)b_uncomp; (void)b_csum2;
+		std::streampos next_block = block_start + std::streamoff(16 + b_comp);
+
+		// Seek back and use block_reader
+		is.seekg(block_start);
+		stream::block_reader::pointer reader = stream::block_reader::get(is, version);
+		header.load(*reader, version);
+		header.decode(codepage);
+
+		block_start = next_block;
+	}
+
+	// Block 1: Messages/info text (skip)
+	{
+		is.seekg(block_start);
+		boost::uint32_t b_csum1 = util::load<boost::uint32_t>(is);
+		boost::uint32_t b_comp = util::load<boost::uint32_t>(is);
+		(void)b_csum1;
+		block_start = block_start + std::streamoff(16 + b_comp);
+	}
+
+	// Blocks 2 through 2+file_count-1: File entries
+	// In 1.0.9, each file entry is in its own compressed block (95 bytes each)
+	size_t file_count = header.file_count;
+
+	files.clear();
+	data_entries.clear();
+
+	if(entries & (Files | DataEntries)) {
+		files.resize(file_count);
+		data_entries.resize(file_count);
+	}
+
+	// Track disk offsets for data entry computation
+	// Data starts after the idska32 header (8 bytes magic + 4 bytes size = 12 bytes)
+	boost::uint32_t current_offset = 12;
+	boost::uint32_t current_disk = 0;
+
+	for(size_t i = 0; i < file_count; i++) {
+		// Seek to this block's position and read header for position tracking
+		is.seekg(block_start);
+		boost::uint32_t b_csum1 = util::load<boost::uint32_t>(is);
+		boost::uint32_t b_comp = util::load<boost::uint32_t>(is);
+		boost::uint32_t b_uncomp = util::load<boost::uint32_t>(is);
+		boost::uint32_t b_csum2 = util::load<boost::uint32_t>(is);
+		(void)b_csum1; (void)b_uncomp; (void)b_csum2;
+		std::streampos next_block = block_start + std::streamoff(16 + b_comp);
+
+		// Seek back and use block_reader to decompress
+		is.seekg(block_start);
+		stream::block_reader::pointer reader = stream::block_reader::get(is, version);
+
+		// Read 95-byte file entry
+		char entry_buf[95];
+		reader->read(entry_buf, 95);
+		if(reader->fail()) {
+			std::ostringstream oss;
+			oss << "could not read file entry " << i;
+			throw std::runtime_error(oss.str());
+		}
+
+		boost::uint8_t path_len = static_cast<boost::uint8_t>(entry_buf[0]);
+		if(path_len > 63) { path_len = 63; }
+		std::string dest_path(entry_buf + 1, path_len);
+
+		// Bytes 80-83: Uncompressed file size (uint32)
+		boost::uint32_t uncompressed_size = util::little_endian::load<boost::uint32_t>(entry_buf + 80);
+		// Bytes 84-87: Compressed file size (uint32)
+		boost::uint32_t compressed_size = util::little_endian::load<boost::uint32_t>(entry_buf + 84);
+		// Bytes 88-91: Checksum (uint32, Adler32)
+		boost::uint32_t checksum_val = util::little_endian::load<boost::uint32_t>(entry_buf + 88);
+
+		debug("[file " << i << "] \"" << dest_path << "\" compressed=" << compressed_size
+		      << " uncompressed=" << uncompressed_size);
+
+		if(entries & (Files | DataEntries)) {
+			// Populate file entry
+			file_entry & fe = files[i];
+			fe.destination = dest_path;
+			fe.location = static_cast<boost::uint32_t>(i);
+			fe.options = 0;
+			fe.type = file_entry::UserFile;
+			fe.attributes = boost::uint32_t(-1);
+			fe.external_size = 0;
+			fe.permission = -1;
+			fe.size = uncompressed_size;
+			fe.checksum.type = crypto::Adler32;
+			fe.checksum.adler32 = checksum_val;
+
+			// Populate data entry
+			data_entry & de = data_entries[i];
+			de.chunk.first_slice = current_disk;
+			de.chunk.last_slice = current_disk;
+			de.chunk.sort_offset = current_offset;
+			de.chunk.offset = current_offset;
+			de.chunk.size = compressed_size;
+			de.chunk.compression = stream::Zlib;
+			de.chunk.encryption = stream::Plaintext;
+			de.file.offset = 0;
+			de.file.size = uncompressed_size;
+			de.file.checksum.type = crypto::Adler32;
+			de.file.checksum.adler32 = checksum_val;
+			de.file.filter = stream::NoFilter;
+			de.uncompressed_size = uncompressed_size;
+			de.timestamp = 0;
+			de.timestamp_nsec = 0;
+			de.file_version = 0;
+			de.options = 0;
+			de.sign = data_entry::NoSetting;
+
+			// Parse timestamp from Windows FILETIME (8-byte int64)
+			boost::int64_t filetime;
+			std::memcpy(&filetime, entry_buf + 64, sizeof(filetime));
+			static const boost::int64_t FiletimeOffset = 0x19DB1DED53E8000ll;
+			if(filetime >= FiletimeOffset) {
+				filetime -= FiletimeOffset;
+				de.timestamp = filetime / 10000000;
+				de.timestamp_nsec = boost::uint32_t(filetime % 10000000) * 100;
+			}
+
+			// Advance offset: 4 bytes zlb marker + compressed_size
+			current_offset += 4 + compressed_size;
+		}
+
+		block_start = next_block;
+	}
+
+	// Set remaining counts to 0 and clear unused entry vectors
+	header.data_entry_count = file_count;
+	languages.clear();
+	messages.clear();
+	permissions.clear();
+	types.clear();
+	components.clear();
+	tasks.clear();
+	directories.clear();
+	icons.clear();
+	ini_entries.clear();
+	registry_entries.clear();
+	delete_entries.clear();
+	uninstall_delete_entries.clear();
+	run_entries.clear();
+	uninstall_run_entries.clear();
+	wizard_images.clear();
+	wizard_images_small.clear();
+	decompressor_dll.clear();
+	decrypt_dll.clear();
+}
+
 void info::try_load(std::istream & is, entry_types entries, util::codepage_id force_codepage) {
 	
 	debug("trying to load setup headers for version " << version);
@@ -222,19 +395,19 @@ void info::try_load(std::istream & is, entry_types entries, util::codepage_id fo
 	debug("loading uninstall run entries");
 	load_entries(*reader, entries, header.uninstall_run_entry_count, uninstall_run_entries,
 	             UninstallRunEntries);
-	
+
 	if(version >= INNO_VERSION(4, 0, 0)) {
 		debug("loading images and plugins");
 		load_wizard_and_decompressor(*reader, version, header, *this, entries);
 	}
-	
+
 	// restart the compression stream
 	check_is_end(reader, "unknown data at end of primary header stream");
 	reader = stream::block_reader::get(is, version);
-	
+
 	debug("loading data entries");
 	load_entries(*reader, entries, header.data_entry_count, data_entries, DataEntries);
-	
+
 	check_is_end(reader, "unknown data at end of secondary header stream");
 }
 
@@ -252,8 +425,13 @@ void info::load(std::istream & is, entry_types entries, util::codepage_id force_
 		            << color::white << version << color::reset;
 	}
 	
+	if(version < INNO_VERSION(1, 2, 10)) {
+		load_v109(is, entries);
+		return;
+	}
+
 	version_constant listed_version = version.value;
-	
+
 	// Some setup versions didn't increment the data version number when they should have.
 	// To work around this, we try to parse the headers for all data versions and use the first
 	// version that parses without warnings or errors.
@@ -270,10 +448,10 @@ void info::load(std::istream & is, entry_types entries, util::codepage_id force_
 		warning_suppressor warnings;
 		
 		try {
-			
+
 			// Try to parse headers for this version
 			try_load(is, entries, force_codepage);
-			
+
 			if(warnings) {
 				// Parsed without errors but with warnings - try other versions first
 				if(!parsed_without_errors) {
@@ -282,10 +460,10 @@ void info::load(std::istream & is, entry_types entries, util::codepage_id force_
 				}
 				throw std::exception();
 			}
-			
+
 			warnings.flush();
 			return;
-			
+
 		} catch(...) {
 			
 			is.clear();

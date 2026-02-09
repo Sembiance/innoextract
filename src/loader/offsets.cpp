@@ -50,6 +50,7 @@ struct setup_loader_version {
 };
 
 const setup_loader_version known_setup_loader_versions[] = {
+	{ { 'r', 'D', 'l', 'P', 't', 'S', 'V', 'x', 0x87, 'e', 'V', 'x' },    INNO_VERSION(1, 0,  9) },
 	{ { 'r', 'D', 'l', 'P', 't', 'S', '0', '2', 0x87, 'e', 'V', 'x' },    INNO_VERSION(1, 2, 10) },
 	{ { 'r', 'D', 'l', 'P', 't', 'S', '0', '4', 0x87, 'e', 'V', 'x' },    INNO_VERSION(4, 0,  0) },
 	{ { 'r', 'D', 'l', 'P', 't', 'S', '0', '5', 0x87, 'e', 'V', 'x' },    INNO_VERSION(4, 0,  3) },
@@ -172,7 +173,7 @@ bool offsets::load_offsets_at(std::istream & is, boost::uint32_t pos) {
 		exe_checksum.adler32 = checksum.load<boost::uint32_t>(is);
 	}
 	
-	if(version >= INNO_VERSION(4, 0, 0)) {
+	if(version >= INNO_VERSION(4, 0, 0) || version < INNO_VERSION(1, 2, 10)) {
 		message_offset = 0;
 	} else {
 		message_offset = util::load<boost::uint32_t>(is);
@@ -202,10 +203,77 @@ bool offsets::load_offsets_at(std::istream & is, boost::uint32_t pos) {
 	return true;
 }
 
+bool offsets::load_from_exe_scan(std::istream & is) {
+
+	// Scan the file for a known loader magic (for very old versions without Inno pointer)
+	static const char magic_prefix[] = { 'r', 'D', 'l', 'P', 't', 'S' };
+
+	is.seekg(0, std::ios_base::end);
+	std::streampos file_size = is.tellg();
+	if(file_size < 12) {
+		is.clear();
+		return false;
+	}
+
+	is.seekg(0);
+
+	char buf[8192];
+	std::streampos pos = 0;
+	while(pos < file_size) {
+		std::streamsize to_read = std::min(std::streamsize(sizeof(buf)),
+		                                   std::streamsize(file_size - pos));
+		if(is.read(buf, to_read).fail()) {
+			is.clear();
+			return false;
+		}
+		std::streamsize nread = is.gcount();
+
+		for(std::streamsize i = 0; i <= nread - 12; i++) {
+			if(std::memcmp(buf + i, magic_prefix, sizeof(magic_prefix)) == 0) {
+				boost::uint32_t candidate = boost::uint32_t(std::streamoff(pos) + i);
+				debug("found potential loader magic at " << print_hex(candidate));
+				if(load_offsets_at(is, candidate)) {
+					return true;
+				}
+				// Seek back to continue scanning
+				pos = std::streampos(std::streamoff(pos) + i + 1);
+				is.seekg(pos);
+				if(is.fail()) {
+					is.clear();
+					return false;
+				}
+				// Re-read buffer from this position
+				to_read = std::min(std::streamsize(sizeof(buf)),
+				                   std::streamsize(file_size - pos));
+				if(to_read <= 0) {
+					return false;
+				}
+				if(is.read(buf, to_read).fail()) {
+					is.clear();
+					return false;
+				}
+				nread = is.gcount();
+				i = -1; // Will be incremented to 0
+				continue;
+			}
+		}
+
+		// Move back 11 bytes to catch magic split across buffer boundaries
+		if(nread < 12) {
+			break; // Not enough data remaining for a 12-byte magic match
+		}
+		pos += std::streamoff(nread - 11);
+		is.seekg(pos);
+	}
+
+	is.clear();
+	return false;
+}
+
 void offsets::load(std::istream & is) {
-	
+
 	found_magic = false;
-	
+
 	/*
 	 * Try to load the offset table by following a pointer at a constant offset.
 	 * This method of storing the offset table is used in versions before 5.1.5
@@ -213,7 +281,7 @@ void offsets::load(std::istream & is) {
 	if(load_from_exe_file(is)) {
 		return;
 	}
-	
+
 	/*
 	 * Try to load an offset table located in a PE/COFF (.exe) resource entry.
 	 * This method of storing the offset table was introduced in version 5.1.5
@@ -221,7 +289,15 @@ void offsets::load(std::istream & is) {
 	if(load_from_exe_resource(is)) {
 		return;
 	}
-	
+
+	/*
+	 * Try to scan the file for a known loader magic.
+	 * This is needed for very old versions that don't have the Inno pointer or PE resources.
+	 */
+	if(load_from_exe_scan(is)) {
+		return;
+	}
+
 	/*
 	 * If no offset table has been found, this must be an external setup-0.bin file.
 	 * In that case, the setup headers start at the beginning of the file.

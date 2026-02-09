@@ -151,9 +151,41 @@ NAMES(stream::block_compression, "Compression",
 namespace stream {
 
 block_reader::pointer block_reader::get(std::istream & base, const setup::version & version) {
-	
+
 	USE_ENUM_NAMES(block_compression)
-	
+
+	if(version < INNO_VERSION(1, 2, 10)) {
+		// Pre-1.2.10 block format: checksum1 + compressed_size + uncompressed_size + checksum2 + raw zlib
+		(void)util::load<boost::uint32_t>(base); // header checksum (Adler32)
+		boost::uint32_t compressed_size = util::load<boost::uint32_t>(base);
+		boost::uint32_t uncompressed_size = util::load<boost::uint32_t>(base);
+		(void)util::load<boost::uint32_t>(base); // data checksum (Adler32)
+
+		block_compression compression;
+		boost::uint32_t stored_size;
+		if(compressed_size == boost::uint32_t(-1)) {
+			stored_size = uncompressed_size;
+			compression = Stored;
+		} else {
+			stored_size = compressed_size;
+			compression = Zlib;
+		}
+
+		debug("[block] size: " << stored_size << "  compression: " << compression);
+
+		util::unique_ptr<io::filtering_istream>::type fis(new io::filtering_istream);
+
+		if(compression == Zlib) {
+			fis->push(io::zlib_decompressor(), 8192);
+		}
+
+		// No inno_block_filter for pre-1.2.10 (no CRC32-per-4K chunks)
+		fis->push(io::restrict(base, 0, stored_size));
+		fis->exceptions(std::ios_base::badbit | std::ios_base::failbit);
+
+		return pointer(fis.release());
+	}
+
 	boost::uint32_t expected_checksum = util::load<boost::uint32_t>(base);
 	crypto::crc32 actual_checksum;
 	actual_checksum.init();

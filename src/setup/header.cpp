@@ -143,14 +143,127 @@ STORED_FLAGS_MAP(stored_privileges_required_overrides,
 
 } // anonymous namespace
 
+namespace {
+
+std::string read_pascal64(std::istream & is) {
+	char buf[64];
+	is.read(buf, 64);
+	boost::uint8_t len = static_cast<boost::uint8_t>(buf[0]);
+	if(len > 63) { len = 63; }
+	return std::string(buf + 1, len);
+}
+
+} // anonymous namespace
+
 void header::load(std::istream & is, const version & version) {
-	
+
 	options = 0;
-	
+
+	if(version < INNO_VERSION(1, 2, 10)) {
+		// 1.0.9 header format: 6 fixed-size Pascal strings (64 bytes each) + numeric fields
+		app_name = read_pascal64(is);
+		app_versioned_name = read_pascal64(is);
+		app_copyright = read_pascal64(is);
+		default_dir_name = read_pascal64(is);
+		default_group_name = read_pascal64(is);
+		base_filename = read_pascal64(is);
+
+		// Clear fields not present in 1.0.9
+		app_id.clear();
+		app_publisher.clear();
+		app_publisher_url.clear();
+		app_support_phone.clear();
+		app_support_url.clear();
+		app_updates_url.clear();
+		app_version.clear();
+		uninstall_icon_name.clear();
+		license_text.clear();
+		info_before.clear();
+		info_after.clear();
+		uninstall_files_dir.clear();
+		uninstall_name.clear();
+		uninstall_icon.clear();
+		app_mutex.clear();
+		default_user_name.clear();
+		default_user_organisation.clear();
+		default_serial.clear();
+		compiled_code.clear();
+		app_readme_file.clear();
+		app_contact.clear();
+		app_comments.clear();
+		app_modify_path.clear();
+		create_uninstall_registry_key.clear();
+		uninstallable.clear();
+		close_applications_filter.clear();
+		setup_mutex.clear();
+		changes_environment.clear();
+		changes_associations.clear();
+		architectures_allowed_expr.clear();
+		architectures_installed_in_64bit_mode_expr.clear();
+		uninstaller_signature.clear();
+		password_salt.clear();
+
+		lead_bytes = 0;
+
+		// Numeric fields in 1.0.9 header (50 bytes)
+		extra_disk_space_required = util::load<boost::int32_t>(is);
+		file_count = util::load<boost::uint32_t>(is);
+		data_entry_count = file_count;
+
+		// Skip remaining numeric fields we don't need
+		// (icon_count, other counts, message_size, winver, back_color, flags)
+		language_count = 0;
+		message_count = 0;
+		permission_count = 0;
+		type_count = 0;
+		component_count = 0;
+		task_count = 0;
+		directory_count = 0;
+		icon_count = 0;
+		ini_entry_count = 0;
+		registry_entry_count = 0;
+		delete_entry_count = 0;
+		uninstall_delete_entry_count = 0;
+		run_entry_count = 0;
+		uninstall_run_entry_count = 0;
+
+		// Set defaults for remaining fields
+		back_color = 0;
+		back_color2 = 0;
+		image_back_color = 0;
+		small_image_back_color = 0;
+		password.crc32 = 0;
+		password.type = crypto::CRC32;
+		winver = windows_version_range();
+		wizard_style = ClassicStyle;
+		wizard_resize_percent_x = 0;
+		wizard_resize_percent_y = 0;
+		image_alpha_format = AlphaIgnored;
+		slices_per_disk = 1;
+		install_mode = NormalInstallMode;
+		uninstall_log_mode = NewLog;
+		uninstall_style = ClassicStyle;
+		dir_exists_warning = Auto;
+		privileges_required = NoPrivileges;
+		privileges_required_override_allowed = 0;
+		show_language_dialog = No;
+		language_detection = UILanguage;
+		compression = stream::Zlib;
+		architectures_allowed = architecture_types::all();
+		architectures_installed_in_64bit_mode = architecture_types::all();
+		signed_uninstaller_original_size = 0;
+		signed_uninstaller_header_checksum = 0;
+		disable_dir_page = No;
+		disable_program_group_page = No;
+		uninstall_display_size = 0;
+
+		return;
+	}
+
 	if(version < INNO_VERSION(1, 3, 0)) {
 		(void)util::load<boost::uint32_t>(is); // uncompressed size of the setup header
 	}
-	
+
 	is >> util::binary_string(app_name);
 	is >> util::binary_string(app_versioned_name);
 	if(version >= INNO_VERSION(1, 3, 0)) {

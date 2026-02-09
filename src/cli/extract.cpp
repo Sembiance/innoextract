@@ -746,8 +746,10 @@ processed_entries filter_entries(const extract_options & o, const setup::info & 
 	#endif
 	
 	#if BOOST_VERSION >= 104800
-	processed.directories.reserve(info.directories.size()
-	                              + size_t(std::log(double(info.files.size()))));
+	if(info.files.size() > 0) {
+		processed.directories.reserve(info.directories.size()
+		                              + size_t(std::log(double(info.files.size()))));
+	}
 	#endif
 	
 	CollisionMap collisions;
@@ -990,12 +992,44 @@ void process_file(const fs::path & installer, const extract_options & o) {
 	try {
 		info.load(ifs, entries, o.codepage);
 	} catch(const setup::version_error &) {
-		fs::path headerfile = installer;
-		headerfile.replace_extension(".0");
-		if(offsets.header_offset == 0 && headerfile != installer && fs::exists(headerfile)) {
-			log_info << "Opening \"" << color::cyan << headerfile.string() << color::reset << '"';
-			process_file(headerfile, o);
-			return;
+		if(offsets.header_offset == 0) {
+			// Try to find an external header file (.0 or -0.bin)
+			fs::path dir = installer.parent_path();
+			std::string stem = util::as_string(installer.stem());
+			// Try multiple naming conventions and case variations
+			std::vector<std::string> candidates;
+			candidates.push_back(stem + ".0");
+			candidates.push_back(stem + "-0.bin");
+			candidates.push_back(boost::to_upper_copy(stem) + ".0");
+			candidates.push_back(boost::to_upper_copy(stem) + "-0.bin");
+			candidates.push_back(boost::to_lower_copy(stem) + ".0");
+			candidates.push_back(boost::to_lower_copy(stem) + "-0.bin");
+			// Also try multi-language header naming: setup,1.0
+			candidates.push_back(stem + ",1.0");
+			candidates.push_back(boost::to_upper_copy(stem) + ",1.0");
+			candidates.push_back(boost::to_lower_copy(stem) + ",1.0");
+			if(boost::to_lower_copy(stem) != "setup") {
+				candidates.push_back("setup.0");
+				candidates.push_back("setup-0.bin");
+				candidates.push_back("setup,1.0");
+				candidates.push_back("SETUP.0");
+				candidates.push_back("SETUP-0.bin");
+				candidates.push_back("SETUP,1.0");
+			}
+			for(size_t i = 0; i < candidates.size(); i++) {
+				fs::path headerfile = dir / candidates[i];
+				if(headerfile != installer && fs::exists(headerfile)) {
+					log_info << "Opening \"" << color::cyan << headerfile.string() << color::reset << '"';
+					// Load headers from the external file instead of recursing,
+					// so that the original installer path is used for data file resolution
+					util::ifstream hfs;
+					hfs.open(headerfile, std::ios_base::in | std::ios_base::binary);
+					if(hfs.is_open()) {
+						info.load(hfs, entries, o.codepage);
+						goto headers_loaded;
+					}
+				}
+			}
 		}
 		if(offsets.found_magic) {
 			if(offsets.header_offset == 0) {
@@ -1012,7 +1046,8 @@ void process_file(const fs::path & installer, const extract_options & o) {
 		oss << " └─ error reason: " << e.what();
 		throw format_error(oss.str());
 	}
-	
+	headers_loaded:
+
 	if(o.gog_galaxy && (o.list || o.test || o.extract || o.list_languages)) {
 		gog::parse_galaxy_files(info, o.gog);
 	}

@@ -152,7 +152,9 @@ private:
 	 * This function does not set the \ref version member.
 	 */
 	void try_load(std::istream & is, entry_types entries, util::codepage_id force_codepage);
-	
+
+	void load_v109(std::istream & is, entry_types entries);
+
 	template <class Entry>
 	void load_entries(std::istream & is, entry_types entries, size_t count,
 	                  std::vector<Entry> & result, entry_types::enum_type entry_type);
