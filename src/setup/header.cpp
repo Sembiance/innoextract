@@ -153,20 +153,38 @@ std::string read_pascal64(std::istream & is) {
 	return std::string(buf + 1, len);
 }
 
+std::string read_pascal48(std::istream & is) {
+	char buf[48];
+	is.read(buf, 48);
+	boost::uint8_t len = static_cast<boost::uint8_t>(buf[0]);
+	if(len > 47) { len = 47; }
+	return std::string(buf + 1, len);
+}
+
 } // anonymous namespace
 
 void header::load(std::istream & is, const version & version) {
 
 	options = 0;
 
-	if(version < INNO_VERSION(1, 2, 10)) {
-		// 1.0.9 header format: 6 fixed-size Pascal strings (64 bytes each) + numeric fields
-		app_name = read_pascal64(is);
-		app_versioned_name = read_pascal64(is);
-		app_copyright = read_pascal64(is);
-		default_dir_name = read_pascal64(is);
-		default_group_name = read_pascal64(is);
-		base_filename = read_pascal64(is);
+	if(version <= INNO_VERSION(1, 0, 9)) {
+		if(version.bits() == 16) {
+			// 16-bit header: 3 × Pascal[63] + 2 × Pascal[47] strings
+			app_name = read_pascal64(is);
+			app_versioned_name = read_pascal64(is);
+			app_copyright = read_pascal64(is);
+			default_dir_name = read_pascal48(is);
+			default_group_name = read_pascal48(is);
+			base_filename.clear();
+		} else {
+			// 1.0.9 header format: 6 × Pascal[63] strings (64 bytes each)
+			app_name = read_pascal64(is);
+			app_versioned_name = read_pascal64(is);
+			app_copyright = read_pascal64(is);
+			default_dir_name = read_pascal64(is);
+			default_group_name = read_pascal64(is);
+			base_filename = read_pascal64(is);
+		}
 
 		// Clear fields not present in 1.0.9
 		app_id.clear();
@@ -205,9 +223,19 @@ void header::load(std::istream & is, const version & version) {
 
 		lead_bytes = 0;
 
-		// Numeric fields in 1.0.9 header (50 bytes)
-		extra_disk_space_required = util::load<boost::int32_t>(is);
-		file_count = util::load<boost::uint32_t>(is);
+		if(version.bits() == 16) {
+			// 16-bit numeric fields: uint16 unknown + int32 extra_disk_space
+			// + 3×uint16 unknown + uint16 file_count
+			(void)util::load<boost::uint16_t>(is);
+			extra_disk_space_required = util::load<boost::int32_t>(is);
+			(void)util::load<boost::uint16_t>(is);
+			(void)util::load<boost::uint16_t>(is);
+			(void)util::load<boost::uint16_t>(is);
+			file_count = util::load<boost::uint16_t>(is);
+		} else {
+			extra_disk_space_required = util::load<boost::int32_t>(is);
+			file_count = util::load<boost::uint32_t>(is);
+		}
 		data_entry_count = file_count;
 
 		// Skip remaining numeric fields we don't need
@@ -260,8 +288,120 @@ void header::load(std::istream & is, const version & version) {
 		return;
 	}
 
+	if(version < INNO_VERSION(1, 2, 0)) {
+		// 1.1.x header format: 6 binary strings + simplified numeric fields
+		is >> util::binary_string(app_name);
+		is >> util::binary_string(app_versioned_name);
+		is >> util::binary_string(app_copyright);
+		is >> util::binary_string(default_dir_name);
+		is >> util::binary_string(default_group_name);
+		is >> util::binary_string(base_filename);
+
+		// Clear fields not present in 1.1.x
+		app_id.clear();
+		app_publisher.clear();
+		app_publisher_url.clear();
+		app_support_phone.clear();
+		app_support_url.clear();
+		app_updates_url.clear();
+		app_version.clear();
+		uninstall_icon_name.clear();
+		license_text.clear();
+		info_before.clear();
+		info_after.clear();
+		uninstall_files_dir.clear();
+		uninstall_name.clear();
+		uninstall_icon.clear();
+		app_mutex.clear();
+		default_user_name.clear();
+		default_user_organisation.clear();
+		default_serial.clear();
+		compiled_code.clear();
+		app_readme_file.clear();
+		app_contact.clear();
+		app_comments.clear();
+		app_modify_path.clear();
+		create_uninstall_registry_key.clear();
+		uninstallable.clear();
+		close_applications_filter.clear();
+		setup_mutex.clear();
+		changes_environment.clear();
+		changes_associations.clear();
+		architectures_allowed_expr.clear();
+		architectures_installed_in_64bit_mode_expr.clear();
+		uninstaller_signature.clear();
+		password_salt.clear();
+
+		lead_bytes = 0;
+
+		// Numeric fields
+		directory_count = util::load<boost::uint32_t>(is);
+		file_count = util::load<boost::uint32_t>(is);
+		data_entry_count = file_count;
+		icon_count = util::load<boost::uint32_t>(is);
+		ini_entry_count = util::load<boost::uint32_t>(is);
+		registry_entry_count = util::load<boost::uint32_t>(is);
+		delete_entry_count = util::load<boost::uint32_t>(is);
+		uninstall_delete_entry_count = util::load<boost::uint32_t>(is);
+		run_entry_count = util::load<boost::uint32_t>(is);
+		uninstall_run_entry_count = util::load<boost::uint32_t>(is);
+		extra_disk_space_required = util::load<boost::int32_t>(is);
+
+		boost::int32_t license_size = util::load<boost::int32_t>(is);
+		boost::int32_t info_before_size = util::load<boost::int32_t>(is);
+		boost::int32_t info_after_size = util::load<boost::int32_t>(is);
+
+		winver.load(is, version);
+
+		// No back_color, image_back_color, or password in 1.1.x header
+		// Skip remaining bytes (flags) - not needed for extraction
+		(void)license_size;
+		(void)info_before_size;
+		(void)info_after_size;
+
+		language_count = 0;
+		message_count = 0;
+		permission_count = 0;
+		type_count = 0;
+		component_count = 0;
+		task_count = 0;
+
+		back_color = 0;
+		back_color2 = 0;
+		image_back_color = 0;
+		small_image_back_color = 0;
+		password.crc32 = 0;
+		password.type = crypto::CRC32;
+		wizard_style = ClassicStyle;
+		wizard_resize_percent_x = 0;
+		wizard_resize_percent_y = 0;
+		image_alpha_format = AlphaIgnored;
+		slices_per_disk = 1;
+		install_mode = NormalInstallMode;
+		uninstall_log_mode = NewLog;
+		uninstall_style = ClassicStyle;
+		dir_exists_warning = Auto;
+		privileges_required = NoPrivileges;
+		privileges_required_override_allowed = 0;
+		show_language_dialog = No;
+		language_detection = UILanguage;
+		compression = stream::Zlib;
+		architectures_allowed = architecture_types::all();
+		architectures_installed_in_64bit_mode = architecture_types::all();
+		signed_uninstaller_original_size = 0;
+		signed_uninstaller_header_checksum = 0;
+		disable_dir_page = No;
+		disable_program_group_page = No;
+		uninstall_display_size = 0;
+
+		return;
+	}
+
+	boost::uint32_t entry_size_v12 = 0;
+	std::streampos entry_start_v12;
 	if(version < INNO_VERSION(1, 3, 0)) {
-		(void)util::load<boost::uint32_t>(is); // uncompressed size of the setup header
+		entry_size_v12 = util::load<boost::uint32_t>(is);
+		entry_start_v12 = is.tellg();
 	}
 
 	is >> util::binary_string(app_name);
@@ -431,7 +571,7 @@ void header::load(std::istream & is, const version & version) {
 		task_count = 0;
 	}
 	
-	directory_count = util::load<boost::uint32_t>(is, version.bits());
+directory_count = util::load<boost::uint32_t>(is, version.bits());
 	file_count = util::load<boost::uint32_t>(is, version.bits());
 	data_entry_count = util::load<boost::uint32_t>(is, version.bits());
 	icon_count = util::load<boost::uint32_t>(is, version.bits());
@@ -452,7 +592,7 @@ void header::load(std::istream & is, const version & version) {
 	}
 	
 	winver.load(is, version);
-	
+
 	if(version < INNO_VERSION_EXT(6, 4, 0, 1)) {
 		back_color = util::load<boost::uint32_t>(is);
 	} else {
@@ -640,7 +780,7 @@ void header::load(std::istream & is, const version & version) {
 	}
 	
 	options |= load_flags(is, version);
-	
+
 	if(version < INNO_VERSION(3, 0, 4)) {
 		privileges_required = (options & AdminPrivilegesRequired) ? AdminPriviliges : NoPrivileges;
 	}
@@ -660,6 +800,11 @@ void header::load(std::istream & is, const version & version) {
 	}
 	
 	if(version < INNO_VERSION(1, 3, 0)) {
+		// Seek past the header entry using the saved TotalSize to handle
+		// any binary fields not read above (format differences between versions)
+		if(entry_size_v12 > 0) {
+			is.seekg(entry_start_v12 + std::streamoff(entry_size_v12));
+		}
 		if(license_size > 0) {
 			license_text.resize(size_t(license_size));
 			is.read(&license_text[0], license_size);

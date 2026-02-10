@@ -130,7 +130,9 @@ private:
 
 	bool load_from_exe_scan(std::istream & is);
 
-	bool load_offsets_at(std::istream & is, boost::uint32_t pos);
+	bool load_from_version_scan(std::istream & is);
+
+	bool load_offsets_at(std::istream & is, boost::uint32_t pos, bool strict = false);
 	
 };
 

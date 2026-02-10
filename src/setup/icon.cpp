@@ -38,17 +38,17 @@ STORED_ENUM_MAP(stored_close_setting, icon_entry::NoSetting,
 } // anonymous namespace
 
 void icon_entry::load(std::istream & is, const info & i) {
-	
-	if(i.version < INNO_VERSION(1, 3, 0)) {
-		(void)util::load<boost::uint32_t>(is); // uncompressed size of the entry
-	}
-	
+
 	is >> util::encoded_string(name, i.codepage, i.header.lead_bytes);
 	is >> util::encoded_string(filename, i.codepage, i.header.lead_bytes);
 	is >> util::encoded_string(parameters, i.codepage, i.header.lead_bytes);
 	is >> util::encoded_string(working_dir, i.codepage, i.header.lead_bytes);
 	is >> util::encoded_string(icon_file, i.codepage, i.header.lead_bytes);
-	is >> util::encoded_string(comment, i.codepage);
+	if(i.version >= INNO_VERSION(1, 2, 10)) {
+		is >> util::encoded_string(comment, i.codepage);
+	} else {
+		comment.clear();
+	}
 	
 	load_condition_data(is, i);
 	

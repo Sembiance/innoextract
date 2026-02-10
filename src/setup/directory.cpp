@@ -48,10 +48,6 @@ STORED_FLAGS_MAP(stored_inno_directory_options_1,
 
 void directory_entry::load(std::istream & is, const info & i) {
 	
-	if(i.version < INNO_VERSION(1, 3, 0)) {
-		(void)util::load<boost::uint32_t>(is); // uncompressed size of the entry
-	}
-	
 	is >> util::encoded_string(name, i.codepage, i.header.lead_bytes);
 	
 	load_condition_data(is, i);

@@ -110,17 +110,19 @@ bool slice_reader::open_file(const path_type & file) {
 		throw slice_error("could not read slice magic number in \"" + file.string() + "\"");
 	}
 	bool found = false;
-	for(size_t i = 0; boost::size(slice_ids); i++) {
+	for(size_t i = 0; i < boost::size(slice_ids); i++) {
 		if(!std::memcmp(magic, slice_ids[i], 8)) {
 			found = true;
 			break;
 		}
 	}
 	if(!found) {
-		ifs.close();
-		throw slice_error("bad slice magic number in \"" + file.string() + "\"");
+		// No disk header - treat file as raw data (e.g. old 16-bit Inno Setup data files)
+		ifs.seekg(0);
+		slice_size = boost::uint32_t(std::min(file_size, std::streampos(std::numeric_limits<boost::int32_t>::max())));
+		return true;
 	}
-	
+
 	slice_size = util::load<boost::uint32_t>(ifs);
 	if(ifs.fail()) {
 		ifs.close();

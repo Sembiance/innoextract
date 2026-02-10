@@ -58,23 +58,6 @@ const known_legacy_version legacy_versions[] = {
 	{ "i1.2.10--32\x1a", INNO_VERSION(1, 2, 10), 0 },
 };
 
-typedef char stored_short_legacy_version[8];
-
-struct known_short_legacy_version {
-
-	char name[9]; // terminating 0 byte is ignored
-
-	version_constant version;
-	version::flags variant;
-
-	operator version_constant() const { return version; }
-
-};
-
-const known_short_legacy_version short_legacy_versions[] = {
-	{ "i109-32\x1a", INNO_VERSION(1, 0, 9), 0 },
-};
-
 typedef char stored_version[64];
 
 struct known_version {
@@ -238,19 +221,29 @@ void version::load(std::istream & is) {
 	stored_legacy_version legacy_version;
 	is.read(legacy_version, std::streamsize(sizeof(legacy_version)));
 
-	if(legacy_version[0] == 'i' && legacy_version[7] == '\x1a') {
+	if(legacy_version[0] == 'i' && legacy_version[7] == '\x1a'
+	   && (legacy_version[4] == '-' || legacy_version[4] == 'h')
+	   && legacy_version[1] >= '0' && legacy_version[1] <= '9'
+	   && legacy_version[2] >= '0' && legacy_version[2] <= '9'
+	   && legacy_version[3] >= '0' && legacy_version[3] <= '9') {
 
-		for(size_t i = 0; i < size_t(boost::size(short_legacy_versions)); i++) {
-			if(!memcmp(legacy_version, short_legacy_versions[i].name, sizeof(stored_short_legacy_version))) {
-				value = short_legacy_versions[i].version;
-				variant = short_legacy_versions[i].variant;
-				known = true;
-				debug("known short legacy version: \"" << std::string(legacy_version, 8) << '"');
-				// Seek back 4 bytes since we read 12 but version string is only 8
-				is.seekg(-4, std::ios_base::cur);
-				return;
-			}
+		// Short 8-byte version format: iXYZ-{16|32}\x1a
+		// Used by Inno Setup versions before 1.2.10 (e.g. 1.0.9, 1.1.1)
+		unsigned a = unsigned(legacy_version[1] - '0');
+		unsigned b = unsigned(legacy_version[2] - '0');
+		unsigned c = unsigned(legacy_version[3] - '0');
+		value = INNO_VERSION(a, b, c);
+
+		if(legacy_version[5] == '1' && legacy_version[6] == '6') {
+			variant = Bits16;
+		} else {
+			variant = 0;
 		}
+		known = true;
+		debug("short legacy version: \"" << std::string(legacy_version, 8) << '"');
+		// Seek back 4 bytes since we read 12 but version string is only 8
+		is.seekg(-4, std::ios_base::cur);
+		return;
 
 	}
 
@@ -287,13 +280,15 @@ void version::load(std::istream & is) {
 		try {
 			unsigned a = util::to_unsigned(version_str.data() + 1, 1);
 			unsigned b = util::to_unsigned(version_str.data() + 3, 1);
-			unsigned c = util::to_unsigned(version_str.data() + 5, 2);
+			// Patch number is 1-2 digits at position 5; position 6 may be digit or '-'
+			size_t c_len = (legacy_version[6] >= '0' && legacy_version[6] <= '9') ? 2 : 1;
+			unsigned c = util::to_unsigned(version_str.data() + 5, c_len);
 			value = INNO_VERSION(a, b, c);
 		} catch(const boost::bad_lexical_cast &) {
 			throw version_error();
 		}
-		
-		known = false;
+
+		known = true;
 		
 		return;
 	}

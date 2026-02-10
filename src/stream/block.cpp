@@ -154,8 +154,8 @@ block_reader::pointer block_reader::get(std::istream & base, const setup::versio
 
 	USE_ENUM_NAMES(block_compression)
 
-	if(version < INNO_VERSION(1, 2, 10)) {
-		// Pre-1.2.10 block format: checksum1 + compressed_size + uncompressed_size + checksum2 + raw zlib
+	if(version < INNO_VERSION(1, 2, 0)) {
+		// Pre-1.2.0 block format: checksum1 + compressed_size + uncompressed_size + checksum2 + raw zlib
 		(void)util::load<boost::uint32_t>(base); // header checksum (Adler32)
 		boost::uint32_t compressed_size = util::load<boost::uint32_t>(base);
 		boost::uint32_t uncompressed_size = util::load<boost::uint32_t>(base);
@@ -179,7 +179,7 @@ block_reader::pointer block_reader::get(std::istream & base, const setup::versio
 			fis->push(io::zlib_decompressor(), 8192);
 		}
 
-		// No inno_block_filter for pre-1.2.10 (no CRC32-per-4K chunks)
+		// No inno_block_filter for pre-1.2.0 (no CRC32-per-4K chunks)
 		fis->push(io::restrict(base, 0, stored_size));
 		fis->exceptions(std::ios_base::badbit | std::ios_base::failbit);
 

@@ -77,10 +77,6 @@ void file_entry::load(std::istream & is, const info & i) {
 	
 	options = 0;
 	
-	if(i.version < INNO_VERSION(1, 3, 0)) {
-		(void)util::load<boost::uint32_t>(is); // uncompressed size of the entry
-	}
-	
 	is >> util::encoded_string(source, i.codepage, i.header.lead_bytes);
 	is >> util::encoded_string(destination, i.codepage, i.header.lead_bytes);
 	is >> util::encoded_string(install_font_name, i.codepage, i.header.lead_bytes);
@@ -96,8 +92,12 @@ void file_entry::load(std::istream & is, const info & i) {
 	
 	location = util::load<boost::uint32_t>(is, i.version.bits());
 	attributes = util::load<boost::uint32_t>(is, i.version.bits());
-	external_size = (i.version >= INNO_VERSION(4, 0, 0)) ? util::load<boost::uint64_t>(is)
-	                                                     : util::load<boost::uint32_t>(is);
+	if(i.version >= INNO_VERSION(1, 2, 10)) {
+		external_size = (i.version >= INNO_VERSION(4, 0, 0)) ? util::load<boost::uint64_t>(is)
+		                                                     : util::load<boost::uint32_t>(is);
+	} else {
+		external_size = 0;
+	}
 	
 	if(i.version < INNO_VERSION(3, 0, 5)) {
 		file_copy_mode copyMode = stored_enum<stored_file_copy_mode>(is).get();
