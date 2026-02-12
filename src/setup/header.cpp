@@ -281,6 +281,9 @@ void header::load(std::istream & is, const version & version) {
 		architectures_installed_in_64bit_mode = architecture_types::all();
 		signed_uninstaller_original_size = 0;
 		signed_uninstaller_header_checksum = 0;
+		license_size = 0;
+		info_before_size = 0;
+		info_after_size = 0;
 		disable_dir_page = No;
 		disable_program_group_page = No;
 		uninstall_display_size = 0;
@@ -345,19 +348,13 @@ void header::load(std::istream & is, const version & version) {
 		uninstall_delete_entry_count = util::load<boost::uint32_t>(is);
 		run_entry_count = util::load<boost::uint32_t>(is);
 		uninstall_run_entry_count = util::load<boost::uint32_t>(is);
-		extra_disk_space_required = util::load<boost::int32_t>(is);
+		extra_disk_space_required = 0;
 
-		boost::int32_t license_size = util::load<boost::int32_t>(is);
-		boost::int32_t info_before_size = util::load<boost::int32_t>(is);
-		boost::int32_t info_after_size = util::load<boost::int32_t>(is);
+		license_size = util::load<boost::int32_t>(is);
+		info_before_size = util::load<boost::int32_t>(is);
+		info_after_size = util::load<boost::int32_t>(is);
 
 		winver.load(is, version);
-
-		// No back_color, image_back_color, or password in 1.1.x header
-		// Skip remaining bytes (flags) - not needed for extraction
-		(void)license_size;
-		(void)info_before_size;
-		(void)info_after_size;
 
 		language_count = 0;
 		message_count = 0;
@@ -582,9 +579,9 @@ directory_count = util::load<boost::uint32_t>(is, version.bits());
 	run_entry_count = util::load<boost::uint32_t>(is, version.bits());
 	uninstall_run_entry_count = util::load<boost::uint32_t>(is, version.bits());
 	
-	boost::int32_t license_size = 0;
-	boost::int32_t info_before_size = 0;
-	boost::int32_t info_after_size = 0;
+	license_size = 0;
+	info_before_size = 0;
+	info_after_size = 0;
 	if(version < INNO_VERSION(1, 3, 0)) {
 		license_size = util::load<boost::int32_t>(is, version.bits());
 		info_before_size = util::load<boost::int32_t>(is, version.bits());

@@ -219,6 +219,9 @@ struct header {
 	std::string password_salt;
 	
 	boost::int64_t extra_disk_space_required;
+	boost::int32_t license_size;
+	boost::int32_t info_before_size;
+	boost::int32_t info_after_size;
 	size_t slices_per_disk;
 	
 	enum install_verbosity {

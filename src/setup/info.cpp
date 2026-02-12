@@ -225,8 +225,16 @@ void info::load_v109(std::istream & is, entry_types entries) {
 		header.decode(codepage);
 	}
 
-	// Block 1: Messages/license text (skip)
-	advance_block();
+	// Skip text blocks after header
+	if(version <= INNO_VERSION(1, 0, 9)) {
+		// 1.0.9: always one messages block
+		advance_block();
+	} else {
+		// 1.1.x: conditional text blocks based on sizes from header
+		if(header.license_size > 0) advance_block();
+		if(header.info_before_size > 0) advance_block();
+		if(header.info_after_size > 0) advance_block();
+	}
 
 	if(version <= INNO_VERSION(1, 0, 9)) {
 		// 1.0.9/1.0.8 format: file entries follow directly, each in own block
