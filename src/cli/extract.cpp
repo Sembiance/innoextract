@@ -22,6 +22,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <map>
@@ -38,6 +40,8 @@
 #include <boost/ptr_container/ptr_map.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/range/size.hpp>
+
+#include "configure.hpp"
 
 #include <boost/version.hpp>
 #if BOOST_VERSION >= 104800
@@ -935,7 +939,7 @@ void process_file(const fs::path & installer, const extract_options & o) {
 	} catch(...) {
 		throw std::runtime_error("Could not open file \"" + installer.string() + '"');
 	}
-	
+
 	loader::offsets offsets;
 	offsets.load(ifs);
 	
@@ -1453,5 +1457,5 @@ void process_file(const fs::path & installer, const extract_options & o) {
 	if(o.warn_unused || o.gog) {
 		gog::probe_bin_files(o, info, installer, offsets.data_offset == 0);
 	}
-	
+
 }

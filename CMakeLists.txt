@@ -1,3 +1,4 @@
+# Vibe coded by Codex
 cmake_minimum_required(VERSION 2.8...3.31)
 
 if(CMAKE_VERSION VERSION_LESS 3.12)
@@ -177,8 +178,8 @@ find_package(Boost REQUIRED COMPONENTS
 	iostreams
 	filesystem
 	date_time
-	system
 	program_options
+	OPTIONAL_COMPONENTS system
 )
 list(APPEND LIBRARIES ${Boost_LIBRARIES})
 link_directories(${Boost_LIBRARY_DIRS})
@@ -219,6 +220,16 @@ if(Boost_HAS_STATIC_LIBS)
 		endforeach()
 		list(APPEND LIBRARIES ${${LIB}_LIBRARIES})
 	endforeach()
+endif()
+
+# Ensure zlib and bzip2 are linked directly (needed for zlb decompression)
+if(NOT ZLIB_LIBRARIES)
+	find_package(ZLIB REQUIRED)
+	list(APPEND LIBRARIES ${ZLIB_LIBRARIES})
+endif()
+if(NOT BZIP2_LIBRARIES)
+	find_package(BZip2 REQUIRED)
+	list(APPEND LIBRARIES ${BZIP2_LIBRARIES})
 endif()
 
 set(INNOEXTRACT_HAVE_ICONV 0)
